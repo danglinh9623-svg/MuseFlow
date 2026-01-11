@@ -26,7 +26,10 @@ export interface CharacterProfile {
 }
 
 export enum ModelType {
-  GEMINI_FLASH = 'gemini-2.5-flash-latest', 
+  // Use 3.0 Flash for basic tasks like titling/summarization
+  GEMINI_FLASH = 'gemini-3-flash-preview', 
+  // Use 2.5 Flash for chat if requested (legacy/compat) or keep using 3.0
+  GEMINI_FLASH_LEGACY = 'gemini-2.5-flash-latest',
   GEMINI_PRO = 'gemini-3-pro-preview',
 }
 
