@@ -1,0 +1,16 @@
+{
+  "short_name": "MuseFlow",
+  "name": "MuseFlow: AI Writing Companion",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2038/2038022.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0d1117",
+  "background_color": "#0d1117",
+  "orientation": "portrait"
+}
