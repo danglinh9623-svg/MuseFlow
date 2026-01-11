@@ -95,7 +95,7 @@ export const generateCharacterSuggestion = async (
 export const generateSessionTitle = async (firstMessage: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: ModelType.GEMINI_FLASH, // Use Flash for speed and low cost
+      model: ModelType.GEMINI_FLASH, // Using Gemini 3.0 Flash for this basic task
       contents: `Summarize the following story idea/prompt into a very short, catchy title (max 6 words). Do not use quotes. Prompt: ${firstMessage}`,
     });
     return response.text?.trim() || "New Story";
