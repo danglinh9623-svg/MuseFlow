@@ -1,8 +1,16 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { Message, CharacterProfile, ModelType } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// Disable safety filters for creative writing (NSFW support)
+const SAFETY_SETTINGS = [
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
 
 // Construct a prompt that includes character context
 const buildPromptWithContext = (message: string, characters: CharacterProfile[]): string => {
@@ -32,6 +40,7 @@ export const streamChatResponse = async (
         temperature: 0.9,
         topK: 64,
         topP: 0.95,
+        safetySettings: SAFETY_SETTINGS,
       },
       history: history.map(h => ({
         role: h.role,
@@ -82,6 +91,7 @@ export const generateCharacterSuggestion = async (
       contents: prompt,
       config: {
         temperature: 1.0,
+        safetySettings: SAFETY_SETTINGS,
       }
     });
 
