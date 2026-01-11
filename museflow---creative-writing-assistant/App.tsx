@@ -38,26 +38,26 @@ export default function App() {
         const parsed = JSON.parse(saved);
         setSessions(parsed);
         if (parsed.length > 0) {
-          setCurrentSessionId(parsed[0].id);
+          if (!currentSessionId) setCurrentSessionId(parsed[0].id);
+        } else {
+           createNewSession();
         }
       } catch (e) {
         console.error("Failed to load sessions", e);
+        createNewSession();
       }
     } else {
       createNewSession();
     }
 
-    // Check if running in standalone mode (already installed)
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
                         (window.navigator as any).standalone === true;
     setIsInstalled(isStandalone);
 
-    // Check if the prompt was already captured in index.tsx
     if (window.deferredPrompt) {
       setInstallable(true);
     }
 
-    // Listen for the event in case it happens after mount
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       window.deferredPrompt = e;
@@ -92,7 +92,6 @@ export default function App() {
 
   const handleInstallClick = async () => {
     if (window.deferredPrompt) {
-      // Use the globally captured prompt
       window.deferredPrompt.prompt();
       const { outcome } = await window.deferredPrompt.userChoice;
       if (outcome === 'accepted') {
@@ -101,7 +100,6 @@ export default function App() {
         setIsInstalled(true);
       }
     } else {
-      // Show manual instructions if no prompt is available (iOS or dismissed)
       setShowInstallInstructions(true);
     }
   };
@@ -124,15 +122,74 @@ export default function App() {
   };
 
   const deleteSession = (id: string, e: React.MouseEvent) => {
+    // Prevent event bubbling to avoid selecting the session while deleting
     e.stopPropagation();
-    if (confirm('Are you sure you want to delete this story?')) {
-      const newSessions = sessions.filter(s => s.id !== id);
-      setSessions(newSessions);
-      if (currentSessionId === id) {
-        setCurrentSessionId(newSessions.length > 0 ? newSessions[0].id : null);
-        if (newSessions.length === 0) createNewSession();
-      }
+    e.preventDefault();
+    
+    // Use window.confirm before deleting
+    if (window.confirm('Are you sure you want to delete this story?')) {
+      setSessions(prevSessions => {
+        const newSessions = prevSessions.filter(s => s.id !== id);
+        
+        // Handle current session switch inside the state update logic or strictly after
+        if (currentSessionId === id) {
+          if (newSessions.length > 0) {
+             // We need to defer this slightly to avoid render loop, or just set it
+             setTimeout(() => setCurrentSessionId(newSessions[0].id), 0);
+          } else {
+            // If we deleted the last one, create a new blank one
+            const blankSession: ChatSession = {
+                id: (Date.now() + 1).toString(),
+                title: 'Untitled Story',
+                messages: [{
+                    id: 'welcome',
+                    role: 'model',
+                    content: "Start a new story...",
+                    timestamp: Date.now()
+                }],
+                lastModified: Date.now(),
+                characters: []
+            };
+            setTimeout(() => {
+                setSessions([blankSession]);
+                setCurrentSessionId(blankSession.id);
+            }, 0);
+            return [blankSession]; // Return this for the immediate state
+          }
+        }
+        return newSessions;
+      });
     }
+  };
+
+  const renameSession = (id: string, newTitle: string) => {
+    setSessions(prev => prev.map(s => 
+      s.id === id ? { ...s, title: newTitle } : s
+    ));
+  };
+
+  const handleClearAllData = () => {
+    if (confirm('WARNING: This will delete ALL your stories and characters. This action cannot be undone. Are you sure?')) {
+      localStorage.removeItem(STORAGE_KEY);
+      setSessions([]);
+      setTimeout(() => createNewSession(), 100);
+    }
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    if (!currentSessionId) return;
+    if (!confirm('Delete this message?')) return;
+
+    setSessions(prev => prev.map(s => {
+      if (s.id === currentSessionId) {
+        return {
+          ...s,
+          messages: s.messages.filter(m => m.id !== messageId),
+          lastModified: Date.now()
+        };
+      }
+      return s;
+    }));
   };
 
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -149,28 +206,34 @@ export default function App() {
       timestamp: Date.now()
     };
 
-    // Optimistic update
     const updatedMessages = [...currentSession.messages, userMsg];
+    const shouldRename = currentSession.title === 'Untitled Story' || currentSession.title === 'New Story';
     
-    // Logic: If this is the first user message (total messages <= 2 including welcome), generate a title
-    const shouldRename = currentSession.messages.length <= 2 && currentSession.title === 'Untitled Story';
-    
-    const updatedSession = {
-      ...currentSession,
-      messages: updatedMessages,
-      lastModified: Date.now()
-    };
+    // Fallback title (first 5 words) to ensure it gets renamed immediately
+    let fallbackTitle = userMsg.content.split(' ').slice(0, 5).join(' ');
+    if (fallbackTitle.length > 30) fallbackTitle = fallbackTitle.substring(0, 30) + '...';
 
-    setSessions(prev => prev.map(s => s.id === currentSession.id ? updatedSession : s));
+    setSessions(prev => prev.map(s => {
+      if (s.id === currentSession.id) {
+        return {
+          ...s,
+          // Apply fallback title immediately if needed
+          title: shouldRename ? fallbackTitle : s.title,
+          messages: updatedMessages,
+          lastModified: Date.now()
+        };
+      }
+      return s;
+    }));
+
     setInputValue('');
     setIsGenerating(true);
 
-    // Prepare placeholder for model response
     const modelMsgId = (Date.now() + 1).toString();
     const modelMsgPlaceholder: Message = {
       id: modelMsgId,
       role: 'model',
-      content: '', // Will fill this via streaming
+      content: '', 
       timestamp: Date.now()
     };
     
@@ -180,13 +243,16 @@ export default function App() {
       : s
     ));
 
-    // Handle Rename in background
+    // Execute AI Auto-Rename
     if (shouldRename) {
+      // Run independently
       generateSessionTitle(userMsg.content).then(newTitle => {
-        setSessions(prev => prev.map(s => 
-          s.id === currentSession.id ? { ...s, title: newTitle } : s
-        ));
-      });
+          if (newTitle && newTitle !== "New Story") {
+             setSessions(prev => prev.map(s => 
+               s.id === currentSession.id ? { ...s, title: newTitle } : s
+             ));
+          }
+      }).catch(err => console.error("Auto-rename failed", err));
     }
 
     try {
@@ -194,7 +260,7 @@ export default function App() {
         updatedMessages,
         inputValue,
         currentSession.characters,
-        selectedModel, // Pass selected model
+        selectedModel,
         (textChunk) => {
           setSessions(prev => prev.map(s => {
             if (s.id === currentSession.id) {
@@ -234,16 +300,14 @@ export default function App() {
     const messages = [...currentSession.messages];
     const lastMsg = messages[messages.length - 1];
     
-    if (lastMsg.role !== 'model') return; // Can only regenerate model responses
+    if (lastMsg.role !== 'model') return; 
 
-    // Remove last model message
     messages.pop();
     const lastUserMsg = messages[messages.length - 1];
     if (!lastUserMsg) return;
 
     setIsGenerating(true);
 
-     // Prepare placeholder for model response
      const modelMsgId = (Date.now() + 1).toString();
      const modelMsgPlaceholder: Message = {
        id: modelMsgId,
@@ -261,9 +325,9 @@ export default function App() {
      try {
        await streamChatResponse(
          messages,
-         lastUserMsg.content, // Re-send the last user context/prompt
+         lastUserMsg.content,
          currentSession.characters,
-         selectedModel, // Pass selected model
+         selectedModel, 
          (textChunk) => {
            setSessions(prev => prev.map(s => {
              if (s.id === currentSession.id) {
@@ -295,7 +359,6 @@ export default function App() {
     ));
     setIsCharacterBuilderOpen(false);
 
-    // Add a system note to chat
     const sysMsg: Message = {
       id: Date.now().toString(),
       role: 'model',
@@ -318,10 +381,12 @@ export default function App() {
           onSelectSession={setCurrentSessionId}
           onNewSession={createNewSession}
           onDeleteSession={deleteSession}
+          onRenameSession={renameSession}
+          onClearAll={handleClearAllData}
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
           onInstallApp={handleInstallClick}
-          showInstallButton={!isInstalled} // Always show if not installed
+          showInstallButton={!isInstalled} 
         />
 
         <main className="flex-1 flex flex-col min-w-0 relative">
@@ -375,12 +440,23 @@ export default function App() {
                 )}
                 
                 <div 
-                  className={`relative px-5 py-3.5 rounded-2xl max-w-[85%] md:max-w-[75%] shadow-md leading-relaxed ${
+                  className={`relative group px-5 py-3.5 rounded-2xl max-w-[85%] md:max-w-[75%] shadow-md leading-relaxed ${
                     msg.role === 'user' 
                       ? 'bg-indigo-600 text-white rounded-br-none' 
                       : 'bg-gray-800 text-gray-200 rounded-bl-none border border-gray-700'
                   }`}
                 >
+                  {/* Delete Button - Appears on hover */}
+                  <button
+                    onClick={() => handleDeleteMessage(msg.id)}
+                    className={`absolute -top-3 -right-3 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-sm ${
+                      msg.role === 'user' ? 'bg-indigo-800 text-indigo-200 hover:bg-red-500 hover:text-white' : 'bg-gray-700 text-gray-400 hover:bg-red-500 hover:text-white'
+                    }`}
+                    title="Delete message"
+                  >
+                    <Icon name="X" className="w-3 h-3" />
+                  </button>
+
                   <div className="markdown-content prose prose-invert prose-indigo prose-sm md:prose-base max-w-none">
                      <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
