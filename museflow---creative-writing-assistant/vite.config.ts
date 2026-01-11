@@ -5,9 +5,13 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
+    outDir: 'dist',
     target: 'esnext',
+    emptyOutDir: true,
+    sourcemap: false
   },
   server: {
     host: true
-  }
+  },
+  base: '/'
 })
